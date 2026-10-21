@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wizualizacja grafu decyzyjnego</title>
+  <link rel="stylesheet" href="visualizer.css?v=6">
+  <style>
+    :root { --bg: #f7f7f5; --ink: #1d1d1b; --line: #d6d5cf; --surface: #fff; --muted: #6b6b66; --err: #c0392b; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --bg: #1a1a19; --ink: #ecebe6; --line: #3a3a37; --surface: #242422; --muted: #a3a29b; --err: #ef7a6c; }
+    }
+    :root[data-theme="dark"] { --bg: #1a1a19; --ink: #ecebe6; --line: #3a3a37; --surface: #242422; --muted: #a3a29b; --err: #ef7a6c; }
+    body { margin: 0; padding: 16px 16px 120px; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    h1 { font-size: 20px; margin: 0 auto 0 0; }
+    select, button { height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+    button.primary { background: #d9661f; border-color: #d9661f; color: #fff; font-weight: 600; }
+    .input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; margin-bottom: 12px; align-items: start; }
+    textarea { width: 100%; box-sizing: border-box; min-height: 64px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: 12.5px/1.4 ui-monospace, Consolas, monospace; resize: vertical; }
+    #status { font-weight: 600; min-width: 160px; }
+    #status.err { color: var(--err); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Silnik decyzyjny – wizualizacja wykonania</h1>
+    <label>Scenariusz <select id="scenario"></select></label>
+  </header>
+  <div class="input-row">
+    <textarea id="input" spellcheck="false" aria-label="Dane wejściowe (JSON)"></textarea>
+    <div>
+      <button id="run" class="primary" type="button">Uruchom</button>
+      <p id="status" role="status"></p>
+    </div>
+  </div>
+  <div id="view"></div>
+
+  <script src="engine.js?v=6"></script>
+  <script src="visualizer.js?v=6"></script>
+  <script src="examples.js?v=6"></script>
+  <script>
+    const sel = document.getElementById('scenario');
+    const input = document.getElementById('input');
+    const status = document.getElementById('status');
+    const viewEl = document.getElementById('view');
+    let current, view;
+
+    for (const [key, ex] of Object.entries(DecisionExamples)) sel.add(new Option(ex.name, key));
+
+    function load(key) {
+      current = DecisionExamples[key];
+      input.value = JSON.stringify(current.input, null, 2);
+      if (view) view.destroy();
+      view = GraphView.create(viewEl, current.graph, { startAt: 'first' });
+      execute();
+    }
+
+    function execute() {
+      let data;
+      try { data = JSON.parse(input.value); } catch (e) {
+        status.textContent = 'Niepoprawny JSON: ' + e.message;
+        status.className = 'err';
+        return;
+      }
+      const run = DecisionEngine.run(current.graph, data);
+      status.textContent = run.status === 'ok' ? `OK · ${run.trace.length} kroków` : run.error;
+      status.className = run.status === 'ok' ? '' : 'err';
+      view.setRun(run);
+    }
+
+    sel.addEventListener('change', () => load(sel.value));
+    document.getElementById('run').addEventListener('click', execute);
+    load(sel.value);
+  </script>
+</body>
+</html>

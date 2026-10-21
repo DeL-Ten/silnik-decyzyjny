@@ -1,0 +1,9 @@
+{
+  "name": "silnik-decyzyjny",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Silnik decyzyjny oparty na grafie z wizualizacją wykonania",
+  "scripts": {
+    "test": "node --test tests/engine.test.js"
+  }
+}
