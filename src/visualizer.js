@@ -20,6 +20,7 @@
   const GAP_X = 56;
   const GAP_Y = 76;
   const LOOP_BULGE = 70;
+  const GRID = 20;
   const TYPE_LABEL = {
     input: 'wejście', compute: 'przeliczenie', condition: 'warunek', loop: 'pętla', output: 'wyjście',
   };
@@ -66,16 +67,40 @@
     }));
     for (const n of graph.nodes) if (n.x !== undefined && n.y !== undefined) pos[n.id] = { x: n.x, y: n.y };
 
+    return { pos, edges, back, bounds: boundsOf(pos) };
+  }
+
+  function boundsOf(pos) {
     const xs = Object.values(pos).map((p) => p.x);
     const ys = Object.values(pos).map((p) => p.y);
     const pad = LOOP_BULGE + 40;
-    const bounds = {
+    return {
       x: Math.min(...xs) - NODE_W / 2 - pad,
       y: Math.min(...ys) - NODE_H / 2 - 30,
       w: Math.max(...xs) - Math.min(...xs) + NODE_W + 2 * pad,
       h: Math.max(...ys) - Math.min(...ys) + NODE_H + 60,
     };
-    return { pos, edges, back, bounds };
+  }
+
+  // Ręczny układ węzłów w localStorage (może być niedostępny – wtedy działa tylko w bieżącej sesji).
+  function loadLayout(key) {
+    if (!key) return null;
+    try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; }
+  }
+
+  function saveLayout(key, pos) {
+    if (!key) return;
+    try { if (pos) localStorage.setItem(key, JSON.stringify(pos)); else localStorage.removeItem(key); } catch (e) { /* brak dostępu */ }
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    const ta = Object.assign(document.createElement('textarea'), { value: text });
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok ? Promise.resolve() : Promise.reject(new Error('copy'));
   }
 
   // ---------- narzędzia ----------
@@ -150,6 +175,12 @@
   function create(container, graph, options = {}) {
     const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
     const L = layout(graph);
+    const basePos = JSON.parse(JSON.stringify(L.pos));
+    const saved = loadLayout(options.layoutKey);
+    if (saved) {
+      for (const [id, p] of Object.entries(saved)) if (L.pos[id] && Number.isFinite(p.x) && Number.isFinite(p.y)) L.pos[id] = { x: p.x, y: p.y };
+      L.bounds = boundsOf(L.pos);
+    }
     let run = null;
     let stepIdx = 0;
     let selectedId = null;
@@ -193,6 +224,9 @@
       zoomBtn('Dopasuj', 'Dopasuj do szerokości', () => setZoom(null)),
       zoomBtn('+', 'Powiększ', () => setZoom(scale() * 1.25)),
       zoomLabel,
+      h('span', { class: 'gv-zoom-sep' }),
+      zoomBtn('Resetuj układ', 'Przywróć automatyczny układ węzłów', resetLayout),
+      zoomBtn('Kopiuj pozycje', 'Kopiuj pozycje węzłów (x, y) do wklejenia w definicji grafu', copyPositions),
     ]));
     stage.addEventListener('wheel', (ev) => {
       if (!ev.ctrlKey) return;
@@ -203,6 +237,9 @@
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => { if (zoom === null) setZoom(null); }).observe(canvas);
 
     const defs = svg('defs', {}, root);
+    const grid = svg('pattern', { id: 'gv-grid', width: GRID, height: GRID, patternUnits: 'userSpaceOnUse' }, defs);
+    svg('path', { d: `M${GRID},0 L0,0 0,${GRID}`, class: 'gv-grid-line' }, grid);
+    svg('rect', { class: 'gv-grid', x: -1e4, y: -1e4, width: 2e4, height: 2e4, fill: 'url(#gv-grid)' }, root);
     for (const kind of ['idle', 'done', 'active']) {
       const m = svg('marker', {
         id: `gv-arrow-${kind}`, viewBox: '0 0 10 10', refX: 9, refY: 5,
@@ -225,6 +262,7 @@
       if (!text) lbl.style.display = 'none';
       edgeEls[e.id] = { g, path, lbl, bg, t, text };
     }
+    const edgesByNode = new Map(graph.nodes.map((n) => [n.id, L.edges.filter((e) => e.from === n.id || e.to === n.id)]));
 
     const nodeEls = {};
     for (const n of graph.nodes) {
@@ -240,9 +278,83 @@
       svg('circle', { r: 12 }, badge);
       const badgeText = svg('text', { 'text-anchor': 'middle', dy: '0.35em' }, badge);
       const select = () => { selectedId = n.id; selectedIter = null; render(); };
-      g.addEventListener('click', select);
-      g.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); select(); } });
+      g.addEventListener('click', () => { if (suppressClick) suppressClick = false; else select(); });
+      g.addEventListener('pointerdown', (ev) => startDrag(ev, n.id));
+      g.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); select(); return; }
+        const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
+        if (!dir) return;
+        ev.preventDefault();
+        const step = GRID * (ev.shiftKey ? 5 : 1);
+        const p = L.pos[n.id];
+        moveNode(n.id, snap(p.x) + dir[0] * step, snap(p.y) + dir[1] * step);
+        commitLayout();
+      });
       nodeEls[n.id] = { g, badge, badgeText };
+    }
+
+    // --- przeciąganie węzłów ---
+    let suppressClick = false;
+    const snap = (v) => Math.round(v / GRID) * GRID;
+    const toSvg = (ev) => new DOMPoint(ev.clientX, ev.clientY).matrixTransform(root.getScreenCTM().inverse());
+
+    function moveNode(id, x, y) {
+      L.pos[id] = { x, y };
+      nodeEls[id].g.setAttribute('transform', `translate(${x},${y})`);
+      for (const e of edgesByNode.get(id)) {
+        const p = edgePath(e, L.pos, L.back);
+        edgeEls[e.id].path.setAttribute('d', p.d);
+        edgeEls[e.id].lbl.setAttribute('transform', `translate(${p.label.x},${p.label.y})`);
+      }
+    }
+
+    // Po upuszczeniu: dopasuj obszar rysunku do nowych pozycji i zapamiętaj układ.
+    function commitLayout(reset) {
+      L.bounds = boundsOf(L.pos);
+      root.setAttribute('viewBox', `${L.bounds.x} ${L.bounds.y} ${L.bounds.w} ${L.bounds.h}`);
+      setZoom(zoom);
+      saveLayout(options.layoutKey, reset ? null : L.pos);
+    }
+
+    function startDrag(ev, id) {
+      if (ev.button !== 0) return;
+      suppressClick = false;
+      const g = nodeEls[id].g;
+      const from = toSvg(ev);
+      const orig = { ...L.pos[id] };
+      let moved = false;
+      g.setPointerCapture(ev.pointerId);
+      const move = (e) => {
+        if (!moved && Math.hypot(e.clientX - ev.clientX, e.clientY - ev.clientY) < 4) return;
+        if (!moved) { moved = true; root.classList.add('is-dragging'); g.classList.add('is-dragging'); }
+        const p = toSvg(e);
+        moveNode(id, snap(orig.x + p.x - from.x), snap(orig.y + p.y - from.y));
+      };
+      const end = () => {
+        g.removeEventListener('pointermove', move);
+        g.removeEventListener('pointerup', end);
+        g.removeEventListener('pointercancel', end);
+        if (!moved) return;
+        suppressClick = true;
+        root.classList.remove('is-dragging');
+        g.classList.remove('is-dragging');
+        commitLayout();
+      };
+      g.addEventListener('pointermove', move);
+      g.addEventListener('pointerup', end);
+      g.addEventListener('pointercancel', end);
+    }
+
+    function resetLayout() {
+      for (const [id, p] of Object.entries(basePos)) moveNode(id, p.x, p.y);
+      commitLayout(true);
+    }
+
+    function copyPositions(ev) {
+      const btnEl = ev.currentTarget;
+      const text = JSON.stringify(Object.fromEntries(graph.nodes.map((n) => [n.id, L.pos[n.id]])), null, 2);
+      const flash = (msg) => { btnEl.textContent = msg; setTimeout(() => { btnEl.textContent = 'Kopiuj pozycje'; }, 1500); };
+      copyText(text).then(() => flash('Skopiowano'), () => flash('Brak dostępu do schowka'));
     }
 
     // --- odtwarzacz ---

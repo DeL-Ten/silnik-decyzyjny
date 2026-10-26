@@ -54,6 +54,10 @@
   padding: 4px; background: var(--gv-surface); border: 1px solid var(--gv-line); border-radius: 8px;
 }
 .gv-zoom .gv-btn { height: 28px; min-width: 28px; padding: 0 8px; }
+.gv-zoom { flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 32px); }
+.gv-zoom-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--gv-line); }
+.gv-grid-line { fill: none; stroke: var(--gv-line); stroke-width: 1; opacity: .45; transition: opacity .2s; }
+.gv-svg.is-dragging .gv-grid-line { opacity: 1; }
 .gv-zoom-label { min-width: 40px; text-align: right; font-size: 12px; color: var(--gv-muted); font-variant-numeric: tabular-nums; }
 
 /* krawędzie */
@@ -72,7 +76,10 @@
 .gv-edge-active .gv-edge-label text { fill: var(--gv-active); font-weight: 600; }
 
 /* węzły */
-.gv-node { cursor: pointer; outline: none; }
+.gv-node { cursor: grab; outline: none; touch-action: none; }
+.gv-node.is-dragging { cursor: grabbing; }
+.gv-node.is-dragging > rect, .gv-node.is-dragging > polygon { filter: drop-shadow(0 6px 14px rgba(0,0,0,.25)); }
+.gv-svg.is-dragging .gv-edge path { transition: none; }
 .gv-node > rect, .gv-node > polygon { stroke: var(--gv-line); stroke-width: 1.5; opacity: .55; transition: opacity .2s, stroke .2s; }
 .gv-input > rect { fill: var(--gv-input); }
 .gv-compute > rect { fill: var(--gv-compute); }

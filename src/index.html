@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wizualizacja grafu decyzyjnego</title>
-  <link rel="stylesheet" href="visualizer.css?v=6">
+  <link rel="stylesheet" href="visualizer.css?v=7">
   <style>
     :root { --bg: #f7f7f5; --ink: #1d1d1b; --line: #d6d5cf; --surface: #fff; --muted: #6b6b66; --err: #c0392b; }
     @media (prefers-color-scheme: dark) {
@@ -36,9 +36,9 @@
   </div>
   <div id="view"></div>
 
-  <script src="engine.js?v=6"></script>
-  <script src="visualizer.js?v=6"></script>
-  <script src="examples.js?v=6"></script>
+  <script src="engine.js?v=7"></script>
+  <script src="visualizer.js?v=7"></script>
+  <script src="examples.js?v=7"></script>
   <script>
     const sel = document.getElementById('scenario');
     const input = document.getElementById('input');
@@ -52,7 +52,7 @@
       current = DecisionExamples[key];
       input.value = JSON.stringify(current.input, null, 2);
       if (view) view.destroy();
-      view = GraphView.create(viewEl, current.graph, { startAt: 'first' });
+      view = GraphView.create(viewEl, current.graph, { startAt: 'first', layoutKey: 'silnik-uklad:' + key });
       execute();
     }
 
